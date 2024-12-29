@@ -23,7 +23,6 @@ MasterLootRemind._blacklist = {
 }
 MasterLootRemind._whitelist = {
 	[BB["Lieutenant General Andorov"]] = true,
-	["Elder Mottled Boar"] = true,
 }
 MasterLootRemind._ignored = { }
 local lootMethodDesc = {
