@@ -19,10 +19,11 @@ MasterLootRemind._blacklist = {
 	[BB["Deathsworn Captain"]] = true,
 	[BB["Obsidian Sentinel"]] = true,
 	[BB["Ancient Core Hound"]] = true,
-	[BB["Stoneskin Gargoyle"]] = true
+	["Stoneskin Gargoyle"] = true
 }
 MasterLootRemind._whitelist = {
-	[BB["Lieutenant General Andorov"]] = true
+	[BB["Lieutenant General Andorov"]] = true,
+	["Elder Mottled Boar"] = true,
 }
 MasterLootRemind._ignored = { }
 local lootMethodDesc = {
@@ -75,6 +76,71 @@ do
 		raidUnit[i] = {"raid"..i, "raidpet"..i}
 	end
 end
+
+function MasterLootRemind:GetGroupRoster()
+	local args = {}
+	local numRaidMembers, numPartyMembers = GetNumRaidMembers(), GetNumPartyMembers()
+	if numRaidMembers > 0 then
+		for i = 1, numRaidMembers do
+			name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML = GetRaidRosterInfo(i)
+			subgroup = tostring(subgroup)
+			groupNumStr = "Group "..subgroup
+			if args[subgroup] ~= nil then
+				args[subgroup].args[name] =
+				{
+					name = name,
+					desc = name,
+					type = "execute",
+					func = function(arg1)
+						MasterLootRemind:SetMasterlooter(arg1)
+					end,
+					arg1 = name,
+				}
+			else
+				args[subgroup] = 
+				{
+					name = groupNumStr,
+					desc = "Choose raid member from "..groupNumStr,
+					type = "group",
+					args = 
+					{
+						name = 
+						{
+							name = name,
+							desc = name,
+							type = "execute",
+							func = function(arg1)
+								MasterLootRemind:SetMasterlooter(arg1)
+							end,
+							arg1 = name
+						}
+					}
+				}
+			end
+		end
+	elseif numPartyMembers > 0 then
+		for i = 1, numPartyMembers do
+			local name = UnitName(partyUnit[i][1])
+			args[name] = 
+			{
+				name = name,
+				desc = name,
+				type = "execute",
+				func = function(arg1)
+					MasterLootRemind:SetMasterlooter(arg1)
+				end,
+				arg1 = name
+			}
+		end
+	else
+		args["sample"] = {
+			type = "header",
+			name = "Invite someone already!",
+		}
+	end
+	return args
+end
+
 local options  = {
 	type = "group",
 	handler = MasterLootRemind,
@@ -122,7 +188,61 @@ local options  = {
 			disabled = function() return not MasterLootRemind.db.profile.Active end,
 			order = 4
 		},
-		spacer1 = {name = L["List Options"], desc = L["List Options"], type = "header", order = 5},
+		SetMasterlooter = 
+		{
+			name = "Set Master looter",
+			desc = "Choose method to assign ML",
+			type = "group",
+			args = 
+			{
+				SetYourself =
+				{
+					name = "Yourself",
+					desc = "You will be assigned as ML next time",
+					type = "execute",
+					func = function()
+						MasterLootRemind:SetMasterlooter(UnitName("player"))
+					end,
+					order = 1,
+				},
+				SetTarget =
+				{
+					name = "Current target",
+					desc = "Your current target will be assigned as ML next time",
+					type = "execute",
+					func = function()
+						if UnitName("target") ~= nil then
+							MasterLootRemind:SetMasterlooter(UnitName("target"))
+						else
+							MasterLootRemind:Print("There is no target!")
+						end
+					end,
+					order = 2,
+				},
+				SetPlayerName =
+				{
+					name = "Player Name",
+					desc = "Written player name will be assigned as ML next time",
+					type = "text",
+					usage = "<name>",
+					get = false,
+					set = function(name)
+						MasterLootRemind:SetMasterlooter(name)
+					end,
+					order = 3,
+				},
+				SetRaidMember =
+				{
+					name = "Raid / Party",
+					desc = "Chosen raid member will be assigned as ML next time",
+					type = "group",
+					args = MasterLootRemind:GetGroupRoster(),
+					order = 4,
+				},
+			},
+			order = 5
+		},
+		spacer1 = {name = L["List Options"], desc = L["List Options"], type = "header", order = 6},
 		IgnoreTarget =
 		{
 			name = L["Permanently Ignore"],
@@ -225,10 +345,11 @@ MasterLootRemind.independentProfile = true
 function MasterLootRemind:OnInitialize() -- ADDON_LOADED (1)
 	self:RegisterDB("MasterLootRemindDB")
 	self:RegisterDefaults("profile", {
-    Active = true,
-    GroupType = 2,
-    BossCombat = false,
-    ResetLoot = true,
+		Active = true,
+		GroupType = 2,
+		BossCombat = false,
+		ResetLoot = true,
+		Masterlooter = UnitName("player")
 	} )
 	self:RegisterChatCommand( { "/mlr", "/masterlootremind" }, options )
 	self.OnMenuRequest = options
@@ -297,6 +418,15 @@ function MasterLootRemind:SetGroupTypeOption(newType)
 		self:Print(groupTypeDesc[self.db.profile.GroupType])
 	end]]
 	self:UpdateText()
+end
+
+function MasterLootRemind:GetMasterlooter()
+	return self.db.profile.Masterlooter
+end
+
+function MasterLootRemind:SetMasterlooter(newMasterlooter)
+	self.db.profile.Masterlooter = newMasterlooter
+	MasterLootRemind:Print('ML assigned -> '..newMasterlooter)
 end
 
 function MasterLootRemind:GetActiveStatusOption()
@@ -481,10 +611,12 @@ end
 
 function MasterLootRemind:Roster()
 	local numRaidMembers, numPartyMembers = GetNumRaidMembers(), GetNumPartyMembers()
+	self.OnMenuRequest.args.SetMasterlooter.args.SetRaidMember.args = MasterLootRemind:GetGroupRoster()
 	for name in pairs(self._roster) do
 		-- this will grow to the players we've grouped with in the session but preferable to creating fresh tables
 		self._roster[name]=false 
 	end
+	
 	if numRaidMembers > 0 then
 		for i=1,numRaidMembers do
 			local player,pet = UnitName(raidUnit[i][1]),UnitName(raidUnit[i][2])
@@ -577,6 +709,26 @@ function MasterLootRemind:inTable(tableName, searchString)
 	return nil
 end
 
+function MasterLootRemind:CheckPlayerInAnyGroup(searchedPlayer)
+	local numRaidMembers, numPartyMembers = GetNumRaidMembers(), GetNumPartyMembers()
+	if numRaidMembers > 0 then
+		for i=1,numRaidMembers do
+			local player,pet = UnitName(raidUnit[i][1]),UnitName(raidUnit[i][2])
+			if player == searchedPlayer then
+				return true
+			end
+		end
+	elseif numPartyMembers > 0 then
+		for i=1,numPartyMembers do
+			local player, pet = UnitName(partyUnit[i][1]),UnitName(partyUnit[i][2])
+			if player == searchedPlayer then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 function MasterLootRemind:TestMLPopup(name,method,unit)
 	if MasterLootRemind._setPopupClose and (GetTime() - MasterLootRemind._setPopupClose) < 1 then
 		return
@@ -586,7 +738,16 @@ function MasterLootRemind:TestMLPopup(name,method,unit)
 			and (MasterLootRemind._whitelist[name] or (unit == nil or UnitIsEnemy("player", unit))) 
 			and (not MasterLootRemind._blacklist[name])) then
 		if MasterLootRemind:isIgnored(name) == false then
-			local dialog = StaticPopup_Show("MASTERLOOTREMIND_SET_POPUP",name)
+			local ml = MasterLootRemind.db.profile.Masterlooter
+			if UnitName("player") == ml then
+				ml = 'yourself'
+			elseif not MasterLootRemind:CheckPlayerInAnyGroup(ml) then
+				MasterLootRemind:Print("Cannot find <"..ml.."> in party/raid. You will be assigned as ML next time.")
+				MasterLootRemind.db.profile.Masterlooter = UnitName("player")
+				ml = 'yourself'
+			end
+			
+			local dialog = StaticPopup_Show("MASTERLOOTREMIND_SET_POPUP",name,ml)
 			if (dialog) then
 				MasterLootRemind._bossName = name
 				dialog.data = name
@@ -597,7 +758,7 @@ function MasterLootRemind:TestMLPopup(name,method,unit)
 end
 
 StaticPopupDialogs["MASTERLOOTREMIND_SET_POPUP"] = {
-	text = L["%s Detected!. Set yourself as Master Looter?"],
+	text = "%s Detected!. Set %s as Master Looter?",
 	button1 = TEXT(YES),
 	button2 = TEXT(NO),
 	OnShow = function()
@@ -607,7 +768,7 @@ StaticPopupDialogs["MASTERLOOTREMIND_SET_POPUP"] = {
 		MasterLootRemind._setPopupClose = GetTime()
 		MasterLootRemind._bossName = name
 		MasterLootRemind._lastLootMethod = method
-		SetLootMethod("master", UnitName("player"))
+		SetLootMethod("master", MasterLootRemind.db.profile.Masterlooter)
 		MasterLootRemind._visible = false
 	end,
 	OnCancel = function()

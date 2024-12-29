@@ -1075,6 +1075,9 @@ function Dewdrop:FeedAceOptionsTable(options, difference)
 					if type(v.func) == "function" then
 						func = v.func
 						arg1 = passValue
+						if v.arg1 ~= nil then
+							arg1 = v.arg1
+						end
 					else
 						if not handler[v.func] then
 							Dewdrop:error("Handler %q not available", v.func)
